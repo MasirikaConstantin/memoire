@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Plate;
 use App\Models\Violation;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
 class PlateController extends Controller
