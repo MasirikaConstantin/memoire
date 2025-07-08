@@ -11,61 +11,87 @@ use Illuminate\Support\Facades\Validator;
 class PlateController extends Controller
 {
     public function checkPlate(Request $request)
-    {
-        // Valider les données OCR reçues
-        $validator = Validator::make($request->all(), [
-            'ocr_results' => 'required|array',
-            'ocr_results.*' => 'string|max:20'
-        ]);
+{
+    // Valider les données OCR reçues
+    $validator = Validator::make($request->all(), [
+        'ocr_results' => 'required|array',
+        'ocr_results.*' => 'string|max:20'
+    ]);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors()
-            ], 422);
+    if ($validator->fails()) {
+        return response()->json([
+            'success' => false,
+            'errors' => $validator->errors()
+        ], 422);
+    }
+
+    $ocrTexts = $request->input('ocr_results');
+    $bestMatch = null;
+    $bestMatchConfidence = 0;
+
+    foreach ($ocrTexts as $text) {
+        $cleanText = $this->normalizePlateNumber($text);
+        
+        // 1. Recherche exacte (confidence 1.0)
+        $plate = Plate::withCount('violations')
+                  ->where('number', $cleanText)
+                  ->first();
+        
+        if ($plate && (1.0 > $bestMatchConfidence)) {
+            $bestMatch = $plate;
+            $bestMatchConfidence = 1.0;
+            continue; // Priorité à la correspondance exacte
         }
 
-        $ocrTexts = $request->input('ocr_results');
-        $bestMatch = null;
-        $highestConfidence = 0;
-
-        // Trouver la meilleure correspondance parmi les résultats OCR
-        foreach ($ocrTexts as $text) {
-            $cleanText = $this->normalizePlateNumber($text);
+        // 2. Recherche avec alternatives (confidence 0.9)
+        if (!$plate) {
+            $alternates = $this->generateAlternates($cleanText);
             
-            $plate = Plate::where('number', $cleanText)->first();
-            
-            if ($plate) {
-                // Ici vous pourriez utiliser la confiance de l'OCR si disponible
-                $confidence = 1.0; // Valeur factice, à remplacer par la vraie confiance
+            foreach ($alternates as $alternate) {
+                $plate = Plate::withCount('violations')
+                          ->where('number', $alternate)
+                          ->first();
                 
-                if ($confidence > $highestConfidence) {
+                if ($plate && (0.9 > $bestMatchConfidence)) {
                     $bestMatch = $plate;
-                    $highestConfidence = $confidence;
+                    $bestMatchConfidence = 0.9;
+                    break;
                 }
             }
         }
+    }
 
-        if (!$bestMatch) {
-            return response()->json([
-                'success' => true,
-                'plate_exists' => false,
-                'message' => 'Aucune plaque correspondante trouvée'
-            ]);
-        }
-
+    if (!$bestMatch) {
         return response()->json([
             'success' => true,
-            'plate_exists' => true,
-            'plate' => [
-                'number' => $bestMatch->number,
-                'proprietaire' => $bestMatch->proprietaire,
-                'is_stolen' => $bestMatch->is_stolen,
-                'violations_count' => $bestMatch->violations->count()
-            ],
-            'confidence' => $highestConfidence
+            'plate_exists' => false,
+            'message' => 'Aucune plaque correspondante trouvée',
+            'debug' => [
+                'top_candidate' => $ocrTexts[0] ?? null,
+                'normalized' => !empty($ocrTexts[0]) ? $this->normalizePlateNumber($ocrTexts[0]) : null,
+                'alternates_tried' => !empty($ocrTexts[0]) ? $this->generateAlternates($this->normalizePlateNumber($ocrTexts[0])) : []
+            ]
         ]);
     }
+
+    return response()->json([
+        'success' => true,
+        'plate_exists' => true,
+        'plate' => [
+            'number' => $bestMatch->number,
+            'proprietaire' => $bestMatch->proprietaire,
+            'type_vehicle' => $bestMatch->type_vehicle,
+            'is_stolen' => $bestMatch->est_volee,
+            'violations_count' => $bestMatch->violations_count,
+            'image_url' => $bestMatch->image ? Storage::url($bestMatch->image) : null
+        ],
+        'match_quality' => [
+            'confidence' => $bestMatchConfidence,
+            'match_type' => $bestMatchConfidence === 1.0 ? 'exact' : 'alternative'
+        ]
+    ]);
+}
+
 
     public function getPlateViolations($plateNumber)
     {
@@ -123,4 +149,36 @@ class PlateController extends Controller
             $plateNumber
         );
     }
+
+    private function generateAlternates($plateNumber)
+{
+    $alternates = [];
+    $similarChars = [
+        'O' => '0',
+        '0' => 'O',
+        '1' => 'I',
+        'I' => '1',
+        'Z' => '2',
+        '2' => 'Z',
+        //'4' => 'A',
+        'A' => '4',
+        '5' => 'S',
+        'S' => '5',
+        '8' => 'B',
+        'B' => '8'
+    ];
+
+    // Génère toutes les variantes avec un seul caractère changé
+    for ($i = 0; $i < strlen($plateNumber); $i++) {
+        $char = $plateNumber[$i];
+        if (isset($similarChars[$char])) {
+            $variant = substr($plateNumber, 0, $i) 
+                      . $similarChars[$char] 
+                      . substr($plateNumber, $i + 1);
+            $alternates[] = $variant;
+        }
+    }
+
+    return array_unique($alternates);
+}
 }
