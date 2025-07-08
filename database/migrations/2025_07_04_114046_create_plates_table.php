@@ -18,7 +18,9 @@ return new class extends Migration
             $table->string('type_vehicle')->nullable();
             $table->boolean('est_volee')->default(false);
             $table->string('image')->nullable();
-            
+            // Migration
+            $table->string('normalized_number')->virtualAs("UPPER(REPLACE(REPLACE(number, ' ', ''), '-', ''))");
+            $table->index('normalized_number');
             $table->timestamps();
         });
     }

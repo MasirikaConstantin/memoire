@@ -22,4 +22,22 @@ class Plate extends Model
     {
         return $this->hasMany(Violation::class);
     }
+    public static function boot()
+    {
+        parent::boot();
+        static::created(function ($plate) {
+            $plate->normalized_number = strtoupper(str_replace([' ', '-'], '', $plate->number));
+            $plate->save();
+        });
+    }
+
+    // Dans app/Models/Plate.php
+    public function scopeByAnyFormat($query, $number)
+    {
+        $clean = strtoupper(preg_replace('/[^A-Z0-9]/', '', $number));
+        $alternate = str_replace(['O','I'], ['0','1'], $clean);
+        
+        return $query->where('normalized_number', $clean)
+                    ->orWhere('normalized_number', $alternate);
+    }
 }

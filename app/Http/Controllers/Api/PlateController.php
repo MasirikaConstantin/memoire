@@ -71,46 +71,56 @@ class PlateController extends Controller
     {
         $cleanPlateNumber = $this->normalizePlateNumber($plateNumber);
         
-        $plate = Plate::with(['violations' => function($query) {
-            $query->orderBy('created_at', 'desc');
-        }])->where('number', $cleanPlateNumber)->first();
+        // Méthode 1: Recherche exacte d'abord
+        $plate = Plate::with(['violations'])
+                ->where('number', $cleanPlateNumber)
+                ->first();
 
+        // Méthode 2: Si non trouvé, recherche plus flexible
         if (!$plate) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Plaque non trouvée'
-            ], 404);
+            $alternateFormat = $this->convertSimilarChars($cleanPlateNumber);
+            $plate = Plate::with(['violations'])
+                    ->where('number', $alternateFormat)
+                    ->first();
         }
 
         return response()->json([
-            'success' => true,
-            'plate' => [
-                'number' => $plate->number,
-                'proprietaire' => $plate->proprietaire,
-                'is_stolen' => $plate->is_stolen
-            ],
-            'violations' => $plate->violations->map(function($violation) {
-                return [
-                    'id' => $violation->id,
-                    'type' => $violation->type,
-                    'localisation' => $violation->localisation,
-                    'date' => $violation->created_at->format('d/m/Y H:i'),
-                    'traiter' => $violation->traiter,
-                    'photo_preuve' => $violation->photo_preuve ? url('storage/'.$violation->photo_preuve) : null
-                ];
-            })
+            'plate' => $plate,
+            'cleaned_input' => $cleanPlateNumber,
+            'alternate_search' => $alternateFormat ?? null,
+            'match_found' => $plate !== null
         ]);
     }
 
     private function normalizePlateNumber($text)
     {
-        // Nettoyage du texte pour correspondre au format des plaques
+        // 1. Tout en majuscules
         $text = strtoupper(trim($text));
+        
+        // 2. Supprimer tous les caractères non alphanumériques
         $text = preg_replace('/[^A-Z0-9]/', '', $text);
         
-        // Ici vous pouvez ajouter d'autres règles de normalisation
-        // selon le format de vos plaques d'immatriculation
-        
         return $text;
+    }
+
+    private function convertSimilarChars($plateNumber)
+    {
+        // Convertit les caractères ambigus
+        $conversions = [
+            'O' => '0',
+            'I' => '1',
+            'Z' => '2',
+            //'A' => '4',
+            'S' => '5',
+            'G' => '6',
+            'T' => '7',
+            'B' => '8'
+        ];
+        
+        return str_replace(
+            array_keys($conversions),
+            array_values($conversions),
+            $plateNumber
+        );
     }
 }
