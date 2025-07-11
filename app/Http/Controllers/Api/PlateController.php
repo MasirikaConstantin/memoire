@@ -3,10 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\ViolationResource;
 use App\Models\Plate;
 use App\Models\Violation;
-use Carbon\Carbon;
-
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -101,29 +100,32 @@ public function getPlateViolations($plateNumber)
 {
     $cleanPlateNumber = $this->normalizePlateNumber($plateNumber);
 
-    $plate = Plate::with('violations')->where('number', $cleanPlateNumber)->first();
+    $plate = Plate::with(['violations' => fn($q) => $q->orderByDesc('created_at')])
+        ->where('number', $cleanPlateNumber)
+        ->first();
 
     if (!$plate) {
         $alternateFormat = $this->convertSimilarChars($cleanPlateNumber);
-        $plate = Plate::with('violations')->where('number', $alternateFormat)->first();
-    }
-
-    // Format des dates
-    if ($plate) {
-        $plate->created_at = Carbon::parse($plate->created_at)->format('d/m/Y H:i');
-        $plate->updated_at = Carbon::parse($plate->updated_at)->format('d/m/Y H:i');
-
-        foreach ($plate->violations as $violation) {
-            $violation->created_at = Carbon::parse($violation->created_at)->format('d/m/Y H:i');
-            $violation->updated_at = Carbon::parse($violation->updated_at)->format('d/m/Y H:i');
-        }
+        $plate = Plate::with(['violations' => fn($q) => $q->orderByDesc('created_at')])
+            ->where('number', $alternateFormat)
+            ->first();
     }
 
     return response()->json([
-        'plate' => $plate,
+        'plate' => $plate ? [
+            'id' => $plate->id,
+            'number' => $plate->number,
+            'proprietaire' => $plate->proprietaire,
+            'type_vehicle' => $plate->type_vehicle,
+            'est_volee' => $plate->est_volee,
+            'image' => $plate->image,
+            'created_at' => $plate->created_at,
+            'updated_at' => $plate->updated_at,
+            'violations' => ViolationResource::collection($plate->violations),
+        ] : null,
         'cleaned_input' => $cleanPlateNumber,
         'alternate_search' => $alternateFormat ?? null,
-        'match_found' => $plate !== null,
+        'match_found' => $plate !== null
     ]);
 }
 
