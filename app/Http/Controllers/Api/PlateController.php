@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Plate;
 use App\Models\Violation;
+use Carbon\Carbon;
+
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -94,30 +96,37 @@ class PlateController extends Controller
 }
 
 
-    public function getPlateViolations($plateNumber)
-    {
-        $cleanPlateNumber = $this->normalizePlateNumber($plateNumber);
-        
-        // Méthode 1: Recherche exacte d'abord
-        $plate = Plate::with(['violations'])
-                ->where('number', $cleanPlateNumber)
-                ->first();
 
-        // Méthode 2: Si non trouvé, recherche plus flexible
-        if (!$plate) {
-            $alternateFormat = $this->convertSimilarChars($cleanPlateNumber);
-            $plate = Plate::with(['violations'])
-                    ->where('number', $alternateFormat)
-                    ->first();
-        }
+public function getPlateViolations($plateNumber)
+{
+    $cleanPlateNumber = $this->normalizePlateNumber($plateNumber);
 
-        return response()->json([
-            'plate' => $plate,
-            'cleaned_input' => $cleanPlateNumber,
-            'alternate_search' => $alternateFormat ?? null,
-            'match_found' => $plate !== null
-        ]);
+    $plate = Plate::with('violations')->where('number', $cleanPlateNumber)->first();
+
+    if (!$plate) {
+        $alternateFormat = $this->convertSimilarChars($cleanPlateNumber);
+        $plate = Plate::with('violations')->where('number', $alternateFormat)->first();
     }
+
+    // Format des dates
+    if ($plate) {
+        $plate->created_at = Carbon::parse($plate->created_at)->format('d/m/Y H:i');
+        $plate->updated_at = Carbon::parse($plate->updated_at)->format('d/m/Y H:i');
+
+        foreach ($plate->violations as $violation) {
+            $violation->created_at = Carbon::parse($violation->created_at)->format('d/m/Y H:i');
+            $violation->updated_at = Carbon::parse($violation->updated_at)->format('d/m/Y H:i');
+        }
+    }
+
+    return response()->json([
+        'plate' => $plate,
+        'cleaned_input' => $cleanPlateNumber,
+        'alternate_search' => $alternateFormat ?? null,
+        'match_found' => $plate !== null,
+    ]);
+}
+
 
     private function normalizePlateNumber($text)
     {
