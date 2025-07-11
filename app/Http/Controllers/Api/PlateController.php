@@ -130,6 +130,11 @@ public function getPlateViolations($plateNumber)
 }
 
 
+
+
+
+
+
     private function normalizePlateNumber($text)
     {
         // 1. Tout en majuscules
